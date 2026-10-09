@@ -1,0 +1,622 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+src/
+  config/
+    config.js
+    mongo.config.js
+  controller/
+    auth.controller.js
+    short_url.controller.js
+    user.controller.js
+  dao/
+    short_url.js
+    user.dao.js
+  middleware/
+    auth.middleware.js
+  models/
+    short_url.model.js
+    user.model.js
+  routes/
+    auth.routes.js
+    short_url.routes.js
+    user.routes.js
+  services/
+    auth.service.js
+    short_url.service.js
+  utils/
+    attachUser.js
+    errorHandler.js
+    helper.js
+    tryCatchWrapper.js
+app.js
+package.json
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="src/config/config.js">
+export const cookieOptions = {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "Lax",
+    maxAge: 1000 * 60 * 60, // 5 minutes
+}
+</file>
+
+<file path="src/config/mongo.config.js">
+import mongoose from "mongoose";
+console.log(process.env.MONGO_URI);
+
+const connectDB = async () => {
+  try {
+    const conn = await mongoose.connect(process.env.MONGO_URI);
+    console.log(`MongoDB Connected: ${conn.connection.host}`);
+  } catch (error) {
+    console.error(`Error: ${error.message}`);
+    process.exit(1);
+  }
+};
+
+export default connectDB;
+</file>
+
+<file path="src/controller/auth.controller.js">
+import { cookieOptions } from "../config/config.js"
+import { loginUser, registerUser } from "../services/auth.service.js"
+import wrapAsync from "../utils/tryCatchWrapper.js"
+
+
+export const register_user = wrapAsync( async (req, res) => {
+    const {name, email, password} = req.body
+    const {token,user} = await registerUser(name, email, password)
+    req.user = user
+    res.cookie("accessToken", token, cookieOptions)
+    res.status(200).json({message:"register success"})
+})
+
+export const login_user = wrapAsync( async (req, res) => {
+    const {email, password} = req.body
+    const {token,user} = await loginUser(email, password)
+    req.user = user
+    res.cookie("accessToken", token, cookieOptions)
+    res.status(200).json({user:user,message:"login success"})
+})
+
+export const logout_user = wrapAsync( async (req, res) => {
+    res.clearCookie("accessToken", cookieOptions)
+    res.status(200).json({message:"logout success"})
+})
+
+export const get_current_user = wrapAsync( async (req, res) => {
+    res.status(200).json({user:req.user})
+})
+</file>
+
+<file path="src/controller/short_url.controller.js">
+import { getShortUrl } from "../dao/short_url.js"
+import { createShortUrlWithoutUser, createShortUrlWithUser } from "../services/short_url.service.js"
+import wrapAsync from "../utils/tryCatchWrapper.js"
+
+export const createShortUrl = wrapAsync(async (req,res)=>{
+    const data = req.body
+    let shortUrl
+    if(req.user){
+        shortUrl = await createShortUrlWithUser(data.url,req.user._id,data.slug)
+    }else{  
+        shortUrl = await createShortUrlWithoutUser(data.url)
+    }
+    res.status(200).json({shortUrl : process.env.APP_URL + shortUrl})
+})
+
+
+export const redirectFromShortUrl = wrapAsync(async (req,res)=>{
+    const {id} = req.params
+    const url = await getShortUrl(id)
+    if(!url) throw new Error("Short URL not found")
+    res.redirect(url.full_url)
+})
+
+export const createCustomShortUrl = wrapAsync(async (req,res)=>{
+    const {url,slug} = req.body
+    const shortUrl = await createShortUrlWithoutUser(url,customUrl)
+    res.status(200).json({shortUrl : process.env.APP_URL + shortUrl})
+})
+</file>
+
+<file path="src/controller/user.controller.js">
+import wrapAsync from "../utils/tryCatchWrapper.js"
+import { getAllUserUrlsDao } from "../dao/user.dao.js"
+
+export const getAllUserUrls = wrapAsync(async (req, res) => {
+    const {_id} = req.user
+    const urls = await getAllUserUrlsDao(_id)
+    res.status(200).json({message:"success",urls})
+})
+</file>
+
+<file path="src/dao/short_url.js">
+import urlSchema from "../models/short_url.model.js";
+import { ConflictError } from "../utils/errorHandler.js";
+
+export const saveShortUrl = async (shortUrl, longUrl, userId) => {
+    try{
+        const newUrl = new urlSchema({
+            full_url:longUrl,
+            short_url:shortUrl
+        })
+        if(userId){
+            newUrl.user = userId
+        }
+        await newUrl.save()
+    }catch(err){
+        if(err.code == 11000){
+            throw new ConflictError("Short URL already exists")
+        }
+        throw new Error(err)
+    }
+};
+
+export const getShortUrl = async (shortUrl) => {
+    return await urlSchema.findOneAndUpdate({short_url:shortUrl},{$inc:{clicks:1}});
+}
+
+export const getCustomShortUrl = async (slug) => {
+    return await urlSchema.findOne({short_url:slug});
+}
+
+export const findExistingShortUrl = async (longUrl, userId = null) => {
+    return await urlSchema.findOne({full_url:longUrl, user:userId || null});
+}
+</file>
+
+<file path="src/dao/user.dao.js">
+import User from "../models/user.model.js"
+import UrlModel from "../models/short_url.model.js"
+
+export const findUserByEmail = async (email) => {
+    return await User.findOne({email})
+}
+
+export const findUserByEmailByPassword = async (email) => {
+    return await User.findOne({email}).select('+password')
+}
+
+export const findUserById = async (id) => {
+    return await User.findById(id)
+}
+
+export const createUser = async (name, email, password) => {
+    const newUser = new User({name, email, password})
+    await newUser.save()
+    return newUser
+}
+
+export const getAllUserUrlsDao = async (id) => {
+    return await UrlModel.find({user:id})
+}
+</file>
+
+<file path="src/middleware/auth.middleware.js">
+import { findUserById } from "../dao/user.dao.js"
+import { verifyToken } from "../utils/helper.js"
+
+export const authMiddleware = async (req, res, next) => {
+    const token = req.cookies.accessToken
+    if(!token) return res.status(401).json({message:"Unauthorized"})
+    try {
+        const decoded = verifyToken(token)
+        const user = await findUserById(decoded)
+        if(!user) return res.status(401).json({message:"Unauthorized"})
+        req.user = user
+        next()
+    } catch (error) {
+        return res.status(401).json({message:"Unauthorized",error})
+    }
+}
+</file>
+
+<file path="src/models/short_url.model.js">
+import mongoose from "mongoose";
+
+const shortUrlSchema = new mongoose.Schema({
+
+  full_url: {
+    type: String,
+    required: true,
+  },
+  short_url: {
+    type: String,
+    required: true,
+    unique: true,
+    index: true,
+  },
+  clicks: {
+    type: Number,
+    required: true,
+    default: 0,
+  },
+  user:{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+  }
+});
+
+shortUrlSchema.index({ user: 1, full_url: 1 });
+
+const shortUrl = mongoose.model("shortUrl", shortUrlSchema);
+
+export default shortUrl;
+</file>
+
+<file path="src/models/user.model.js">
+import mongoose from "mongoose";
+import bcrypt from "bcryptjs";
+
+const userSchema = new mongoose.Schema({
+  name: {
+    type: String,
+    required: true,
+  },
+  email: {
+    type: String,
+    required: true,
+    unique: true,
+  },
+  password: {
+    type: String,
+    required: true,
+    select: false,
+  },
+  avatar: {
+    type: String,
+    required: false,
+    default: "https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp",
+  },
+});
+
+userSchema.methods.comparePassword = async function (password) {
+  return await bcrypt.compare(password, this.password);
+};
+
+userSchema.set('toJSON', {
+  transform: function (doc, ret) {
+    delete ret.password;
+    delete ret.__v;
+    return ret;
+  }
+});
+
+userSchema.pre("save", async function (next) {
+  if (!this.isModified("password")) return next();
+  this.password = await bcrypt.hash(this.password, 10);
+  next();
+});
+
+const User = mongoose.model("User", userSchema);
+
+export default User;
+</file>
+
+<file path="src/routes/auth.routes.js">
+import express from "express"
+import { register_user, login_user,logout_user,get_current_user } from "../controller/auth.controller.js"
+import { authMiddleware } from "../middleware/auth.middleware.js"
+
+const router = express.Router()
+
+router.post("/register", register_user)
+router.post("/login", login_user)
+router.post("/logout", logout_user)
+router.get("/me", authMiddleware,get_current_user)
+
+export default router
+</file>
+
+<file path="src/routes/short_url.routes.js">
+import express from 'express';
+import { createShortUrl } from '../controller/short_url.controller.js';
+const router = express.Router();
+
+router.post("/",createShortUrl);
+
+export default router;
+</file>
+
+<file path="src/routes/user.routes.js">
+import express from "express"
+import { getAllUserUrls } from "../controller/user.controller.js"
+import { authMiddleware } from "../middleware/auth.middleware.js"
+
+const router = express.Router()
+
+router.post("/urls",authMiddleware, getAllUserUrls)
+
+export default router
+</file>
+
+<file path="src/services/auth.service.js">
+import { createUser, findUserByEmail, findUserByEmailByPassword } from "../dao/user.dao.js"
+import { ConflictError } from "../utils/errorHandler.js"
+import {signToken} from "../utils/helper.js"
+
+export const registerUser = async (name, email, password) => {
+    const user = await findUserByEmail(email)
+    if(user) throw new ConflictError("User already exists")
+    const newUser = await createUser(name, email, password)
+    const token = await signToken({id: newUser._id})
+    return {token,user}
+}
+
+export const loginUser = async (email, password) => {
+    const user = await findUserByEmailByPassword(email)
+    if(!user) throw new Error("Invalid email or password")
+
+    const isPasswordValid = await user.comparePassword(password)
+    if(!isPasswordValid) throw new Error("Invalid email or password")
+    const token = signToken({id: user._id})
+    return {token,user}
+}
+</file>
+
+<file path="src/services/short_url.service.js">
+import { generateNanoId } from "../utils/helper.js"
+import urlSchema from "../models/short_url.model.js"
+import { findExistingShortUrl, getCustomShortUrl, saveShortUrl } from "../dao/short_url.js"
+
+export const createShortUrlWithoutUser = async (url) => {
+    const existing = await findExistingShortUrl(url)
+    if(existing) return existing.short_url
+
+    const shortUrl = generateNanoId(7)
+    if(!shortUrl) throw new Error("Short URL not generated")
+    await saveShortUrl(shortUrl,url)
+    return shortUrl
+}
+
+export const createShortUrlWithUser = async (url,userId,slug=null) => {
+    if(slug){
+        const exists = await getCustomShortUrl(slug)
+        if(exists){
+            // Same user asking again for the same slug + url: just return it
+            if(String(exists.user) === String(userId) && exists.full_url === url) return exists.short_url
+            throw new Error("This custom url already exists")
+        }
+    }else{
+        // Normal mode: reuse this user's existing short URL for the same long URL
+        const existing = await findExistingShortUrl(url,userId)
+        if(existing) return existing.short_url
+    }
+
+    const shortUrl = slug || generateNanoId(7)
+    await saveShortUrl(shortUrl,url,userId)
+    return shortUrl
+}
+</file>
+
+<file path="src/utils/attachUser.js">
+import { findUserById } from "../dao/user.dao.js"
+import { verifyToken } from "./helper.js"
+
+export const attachUser = async (req, res, next) => {
+    const token = req.cookies.accessToken
+    if(!token) return next()
+
+    try {
+        const decoded = verifyToken(token)
+        const user = await findUserById(decoded)
+        if(!user) return next()
+        req.user = user
+        next()
+    } catch (error) {
+        console.log(error)
+        next()
+    }
+}
+</file>
+
+<file path="src/utils/errorHandler.js">
+export const errorHandler = (err,req,res,next) => {
+  if (err instanceof AppError) {
+    return res.status(err.statusCode).json({
+      success: false,
+      message: err.message,
+    });
+  }
+
+  res.status(500).json({
+    success: false,
+    message: err.message || "Internal Server Error",
+  });
+};
+
+export class AppError extends Error {
+    statusCode;
+    isOperational;
+  
+    constructor(message, statusCode = 500, isOperational = true) {
+      super(message);
+      this.statusCode = statusCode;
+      this.isOperational = isOperational;
+      Error.captureStackTrace(this, this.constructor);
+    }
+  }
+  
+  export class NotFoundError extends AppError {
+    constructor(message = "Resource not found") {
+      super(message, 404);
+    }
+  }
+  
+  export class ConflictError extends AppError {
+    constructor(message = "Conflict occurred") {
+      super(message, 409);
+    }
+  }
+  
+  export class BadRequestError extends AppError {
+    constructor(message = "Bad request") {
+      super(message, 400);
+    }
+  }
+  
+  export class UnauthorizedError extends AppError {
+    constructor(message = "Unauthorized") {
+      super(message, 401);
+    }
+  }
+</file>
+
+<file path="src/utils/helper.js">
+import { nanoid } from "nanoid";
+import { cookieOptions } from "../config/config.js";
+import jsonwebtoken from "jsonwebtoken"
+
+export const generateNanoId = (length) =>{
+    return nanoid(length);
+}
+
+export const signToken = (payload) =>{
+    return jsonwebtoken.sign(payload, process.env.JWT_SECRET, {expiresIn: "1h"})
+}
+
+export const verifyToken = (token) =>{
+
+    const decoded = jsonwebtoken.verify(token, process.env.JWT_SECRET)
+    console.log(decoded.id)
+    return decoded.id
+}
+</file>
+
+<file path="src/utils/tryCatchWrapper.js">
+export default function wrapAsync(fn) {
+    return function (req, res, next) {
+      fn(req, res, next).catch(next);
+    };
+};
+</file>
+
+<file path="app.js">
+import express from "express";
+import dotenv from "dotenv";
+import connectDB from "./src/config/mongo.config.js";
+import short_url from "./src/routes/short_url.routes.js";
+import user_routes from "./src/routes/user.routes.js";
+import auth_routes from "./src/routes/auth.routes.js";
+import { redirectFromShortUrl } from "./src/controller/short_url.controller.js";
+import { errorHandler } from "./src/utils/errorHandler.js";
+import cors from "cors";
+import { attachUser } from "./src/utils/attachUser.js";
+import cookieParser from "cookie-parser";
+
+dotenv.config();
+
+const app = express();
+
+connectDB();
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin || origin.includes("vercel.app") || origin.includes("localhost")) {
+        callback(null, true);
+      } else {
+        callback(null, true);
+      }
+    },
+    credentials: true,
+  })
+);
+
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
+
+app.use(attachUser);
+
+app.use("/api/user", user_routes);
+app.use("/api/auth", auth_routes);
+app.use("/api/create", short_url);
+app.get("/:id", redirectFromShortUrl);
+
+app.use(errorHandler);
+
+if (process.env.NODE_ENV !== "production") {
+  app.listen(3000, () => {
+    console.log("Server running locally on http://localhost:3000");
+  });
+}
+
+export default app;
+</file>
+
+<file path="package.json">
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "main": "app.js",
+  "type": "module",
+  "scripts": {
+    "start": "node app.js",
+    "dev": "nodemon app.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.5.0",
+    "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.1.0",
+    "nanoid": "^5.1.5",
+    "nodemon": "^1.14.10"
+  }
+}
+</file>
+
+</files>

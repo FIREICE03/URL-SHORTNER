@@ -38,7 +38,7 @@ app.use(attachUser);
 app.use("/api/user", user_routes);
 app.use("/api/auth", auth_routes);
 app.use("/api/create", short_url);
-app.get("/:id", redirectFromShortUrl);
+app.get("/api/:id", redirectFromShortUrl);
 
 app.use(errorHandler);
 

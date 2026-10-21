@@ -13,13 +13,13 @@ export const createShortUrl = wrapAsync(async (req, res) => {
   }
 
   const baseUrl = (process.env.APP_URL || "").replace(/\/$/, "")
-  res.status(200).json({ shortUrl: `${baseUrl}/api/${shortUrl}` })
+  res.status(200).json({ shortUrl: `${baseUrl}/${shortUrl}` })
 })
 
 export const redirectFromShortUrl = wrapAsync(async (req, res) => {
   const { id } = req.params
   const url = await getShortUrl(id)
-  if (!url) throw new Error("Short URL not found")
+  if (!url) return res.redirect("/?error=not-found")
   res.redirect(url.full_url)
 })
 
@@ -28,5 +28,5 @@ export const createCustomShortUrl = wrapAsync(async (req, res) => {
   const shortUrl = await createShortUrlWithoutUser(url, slug)
 
   const baseUrl = (process.env.APP_URL || "").replace(/\/$/, "")
-  res.status(200).json({ shortUrl: `${baseUrl}/api/${shortUrl}` })
+  res.status(200).json({ shortUrl: `${baseUrl}/${shortUrl}` })
 })

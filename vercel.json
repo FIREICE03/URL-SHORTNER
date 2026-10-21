@@ -18,9 +18,21 @@
       }
     },
     {
-      "source": "/(.*)",
+      "source": "/",
       "destination": {
         "service": "frontend"
+      }
+    },
+    {
+      "source": "/(assets/.*|auth.*|dashboard.*|.*\\.(?:svg|ico|png|jpg|json|css|js))",
+      "destination": {
+        "service": "frontend"
+      }
+    },
+    {
+      "source": "/:id",
+      "destination": {
+        "service": "backend"
       }
     }
   ]
